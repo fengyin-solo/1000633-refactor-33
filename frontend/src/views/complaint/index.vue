@@ -39,7 +39,7 @@
           <td v-for="column in columns" :key="column">{{ row[column] ?? '—' }}</td>
           <td class="row-actions">
             <button
-              v-for="action in actions"
+              v-for="action in actionsFor(row)"
               :key="action"
               class="link"
               type="button"
@@ -47,6 +47,7 @@
             >
               {{ action }}
             </button>
+            <span v-if="!actionsFor(row).length">—</span>
           </td>
         </tr>
         <tr v-if="!rows.length">
@@ -71,9 +72,18 @@ type Row = Record<string, string | number | null>
 
 const ENDPOINT = '/api/complaint'
 const columns = ["投诉编号", "投诉单位", "投诉事由", "涉及样品", "受理人员", "处理措施", "处理期限", "投诉状态"]
-const actions = ["受理投诉", "提交回复", "关闭投诉"]
+const statusActions: Record<string, string[]> = {
+  "待受理": ["受理投诉"],
+  "处理中": ["提交回复"],
+  "已回复": ["关闭投诉"],
+  "已关闭": [],
+}
 const statuses = ["待受理", "处理中", "已回复", "已关闭"]
 const stats = [{"label": "待受理投诉", "value": 0}, {"label": "处理中投诉", "value": 0}, {"label": "本月关闭数", "value": 0}]
+
+function actionsFor(row: Row): string[] {
+  return statusActions[String(row.status ?? '')] ?? []
+}
 
 const rows = ref<Row[]>([])
 const total = ref(0)
@@ -99,10 +109,15 @@ async function runAction(action: string, row: Row) {
   try {
     const response = await request(`${ENDPOINT}/${row.id}/actions`, {
       method: 'POST',
-      body: JSON.stringify({ action }),
+      body: JSON.stringify({ values: { action } }),
     })
     if (!response.ok) {
       throw new Error('投诉处理动作未生效，请稍后重试')
+    }
+    const payload = await response.json()
+    if (!payload.ok) {
+      errorMessage.value = payload.message ?? '投诉处理动作未生效'
+      return
     }
     await reload()
   } catch (error) {
