@@ -39,7 +39,7 @@
           <td v-for="column in columns" :key="column">{{ row[column] ?? '—' }}</td>
           <td class="row-actions">
             <button
-              v-for="action in actions"
+              v-for="action in availableActions(row)"
               :key="action"
               class="link"
               type="button"
@@ -71,7 +71,12 @@ type Row = Record<string, string | number | null>
 
 const ENDPOINT = '/api/complaint'
 const columns = ["投诉编号", "投诉单位", "投诉事由", "涉及样品", "受理人员", "处理措施", "处理期限", "投诉状态"]
-const actions = ["受理投诉", "提交回复", "关闭投诉"]
+const actionsByStatus: Record<string, string[]> = {
+  待受理: ["受理投诉"],
+  处理中: ["提交回复"],
+  已回复: ["关闭投诉"],
+  已关闭: [],
+}
 const statuses = ["待受理", "处理中", "已回复", "已关闭"]
 const stats = [{"label": "待受理投诉", "value": 0}, {"label": "处理中投诉", "value": 0}, {"label": "本月关闭数", "value": 0}]
 
@@ -94,15 +99,34 @@ function openCreate() {
   errorMessage.value = '投诉记录登记入口尚未接入审批流'
 }
 
+function availableActions(row: Row): string[] {
+  return actionsByStatus[String(row.status ?? '')] ?? []
+}
+
 async function runAction(action: string, row: Row) {
   errorMessage.value = ''
+  const values: Record<string, string> = { action }
+  if (action === '提交回复') {
+    const measure = window.prompt('请输入处理措施与回复内容')
+    if (measure === null) {
+      return
+    }
+    if (!measure.trim()) {
+      errorMessage.value = '缺少必填字段：处理措施'
+      return
+    }
+    values['处理措施'] = measure.trim()
+    values['回复内容'] = measure.trim()
+  }
+
   try {
     const response = await request(`${ENDPOINT}/${row.id}/actions`, {
       method: 'POST',
-      body: JSON.stringify({ action }),
+      body: JSON.stringify({ values }),
     })
-    if (!response.ok) {
-      throw new Error('投诉处理动作未生效，请稍后重试')
+    const payload = await response.json().catch(() => null)
+    if (!response.ok || payload?.ok === false) {
+      throw new Error(payload?.detail ?? payload?.message ?? '投诉处理动作未生效，请稍后重试')
     }
     await reload()
   } catch (error) {
